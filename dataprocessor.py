@@ -16,56 +16,77 @@ def add_missing_cols(df):
     return df
 
 def get50kdata():
+    ## get top 50K (based on review date) from each category
+    ## doing it this way since data is too large to hold at once in memory
     for idx, f in enumerate(files):
         filename = directory + f
         category = f.split(".")[0]
         fiftyKdata = pd.DataFrame()
+
+        # read data in chunks, to get a serialized object
         df = pd.read_json(filename, lines=True, convert_dates=['unixReviewTime'], chunksize=size) #, names=names)
+        
+        # iterate over each chunk of 50k data each
         for each in df:
             df_data = each
             if len(fiftyKdata) == 0:
                 fiftyKdata = df_data
             else:
-        #         fiftyKdata.append(df_data)
                 fiftyKdata = pd.concat([fiftyKdata, df_data], ignore_index=True, names=names)
 
+                # keep only top 50k from this iteration
                 fiftyKdata = fiftyKdata.sort_values(by="unixReviewTime", ascending=False)
                 fiftyKdata = fiftyKdata.head(size)
             fiftyKdata = add_missing_cols(fiftyKdata)
             
         fiftyKdata['category'] = category
         fiftyKdata = fiftyKdata[names + ['category']]
+
+        # append to file. 
         fiftyKdata.to_csv('combined_data.csv', mode='a', index=False, header=idx == 0)
         print ("Parsed", category)
 
 def filterByAsin():
+    ## get product names and price of all unique asins in combined data
+    ## doing it this way cos data is too large to hold in-memory, and since products repeat. 
+
+    # read the previously generated combined data file
     combined_data = pd.read_csv("combined_data.csv") 
     cat_df = combined_data.groupby("category")
 
+    # iterate over each category separately, since meta file is separate
     for i in range(len(files)):
         category = files[i].split(".")[0]
 
+        # get unique asins of products current category
         unique_asins = cat_df.get_group(category)["asin"].unique()
         unique_asins_list = list(unique_asins)
 
+        # read corresponding meta data file in chunks
         filename_meta = meta_d + meta_files[i]
         df_meta = pd.read_json(filename_meta, lines=True, convert_dates=['unixReviewTime'], chunksize=20000)
         all_df = pd.DataFrame()
 
         starttime = datetime.now()
         for curr_df in df_meta: 
+            # filter current chunk by asins in current category
             filtered_df = curr_df[curr_df['asin'].isin(unique_asins_list)]
             all_df = pd.concat([all_df, filtered_df])
             if all_df['asin'].count() >=len(unique_asins_list):
                 break
             
             print ("elapsed:", str(int((datetime.now() - starttime).total_seconds() // 60)), "minutes", str(int((datetime.now() - starttime).total_seconds() %60)), "seconds", "found:", all_df['asin'].count(), end='\r' )
+        
+        # save to separate file for each category
         save_file_name = category.split('_')[0].lower() + '_meta_filtered.csv'
         all_df.to_csv(save_file_name, index=False, header=True)
         
 
 
 def addProductName():
+    ## to add product name and category, using previously generated combined data and previously got unique asins meta data
+
+    # read each file
     combined_data = pd.read_csv("combined_data.csv")
     sports_meta_filtered = pd.read_csv("sports_meta_filtered.csv")
     home_meta_filtered = pd.read_csv("home_meta_filtered.csv")
@@ -73,6 +94,7 @@ def addProductName():
     clothing_meta_filtered = pd.read_csv("clothing_meta_filtered.csv")
     books_meta_filtered = pd.read_csv("books_meta_filtered.csv")
 
+    # add contents of each file to single df
     names = list(books_meta_filtered.columns)
     all_meta = pd.DataFrame()
     all_meta = pd.concat([all_meta, sports_meta_filtered], ignore_index=True, names=names)
@@ -81,5 +103,6 @@ def addProductName():
     all_meta = pd.concat([all_meta, clothing_meta_filtered], ignore_index=True, names=names)
     all_meta = pd.concat([all_meta, books_meta_filtered], ignore_index=True, names=names)
 
+    # add product name and price to combined_data df
     combined_data_with_title = pd.merge(combined_data,all_meta[['asin','title', 'price']],on='asin', how='left')
     combined_data_with_title.to_csv("combined_data_with_title.csv", index=False)
