@@ -47,7 +47,7 @@ def get50kdata():
         print ("Parsed", category)
 
 def filterByAsin():
-    ## get product names and price of all unique asins in combined data
+    ## filter meta_data files to include only those products who appear in combined_data
     ## doing it this way cos data is too large to hold in-memory, and since products repeat. 
 
     # read the previously generated combined data file
